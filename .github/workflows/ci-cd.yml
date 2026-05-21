@@ -1,0 +1,84 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+      - staging
+      - dev
+  pull_request:
+    branches:
+      - main
+      - staging
+      - dev
+
+jobs:
+  test-and-scan:
+    name: Test and Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Run Security Audit
+        run: npm audit --audit-level=high
+
+  build-and-containerize:
+    name: Build and Containerize
+    needs: test-and-scan
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: guhensree
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          tags: guhensree/airman-audit-api:${{ github.sha }}
+
+  deploy:
+    name: Deploy Application
+    needs: build-and-containerize
+    runs-on: ubuntu-latest
+    steps:
+      - name: Determine Environment and Mock Deploy
+        run: |
+          # Determine environment based on branch
+          if [ "${{ github.ref_name }}" = "main" ]; then
+            ENV="prod"
+          elif [ "${{ github.ref_name }}" = "staging" ]; then
+            ENV="staging"
+          else
+            ENV="dev"
+          fi
+          
+          echo "Environment Context: $ENV"
+          echo "======================================================"
+          echo "MOCK DEPLOYMENT SCRIPT EXECUTING..."
+          echo "1. Applying Terraform state for environment: $ENV"
+          echo "   terraform workspace select $ENV || terraform workspace new $ENV"
+          echo "   terraform apply -var=\"environment=$ENV\" -auto-approve"
+          echo "2. Deploying Docker image: guhensree/airman-audit-api:${{ github.sha }} to $ENV"
+          echo "MOCK DEPLOYMENT COMPLETED SUCCESSFULLY."
+          echo "======================================================"
